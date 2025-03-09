@@ -64,3 +64,27 @@ embedding_size = 3
 a = CircularErrorDetector(embedding_size, 10, False)
 print(a(torch.randn(3,embedding_size)))
 '''
+
+
+class RidgeRegression(torch.nn.Module):
+    def __init__(self, input_dim, lambda_):
+        super(RidgeRegression, self).__init__()
+        self.w = torch.nn.Parameter(torch.randn(input_dim, requires_grad=True))
+        self.b = torch.nn.Parameter(torch.randn(1, requires_grad=True))
+        self.lambda_ = lambda_   
+
+    def forward(self, X):
+        return X @ self.w + self.b
+
+    def loss(self, X, y):
+        mse_loss = torch.mean((self.forward(X) - y) ** 2)
+        l2_reg = self.lambda_ * torch.sum(self.w ** 2)  
+        return mse_loss + l2_reg
+    
+class MultiClassLogisticRegression(torch.nn.Module):
+    def __init__(self, input_size, num_classes):
+        super(MultiClassLogisticRegression, self).__init__()
+        self.linear = torch.nn.Linear(input_size, num_classes)
+    
+    def forward(self, x):
+        return self.linear(x)
