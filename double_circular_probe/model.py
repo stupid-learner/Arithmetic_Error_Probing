@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 class CircularProbe(torch.nn.Module):
-    def __init__(self, embedding_size, basis, bias):
+    def __init__(self, embedding_size, basis=10, bias=False):
         super(CircularProbe, self).__init__()
         self.weights = torch.nn.Linear(embedding_size, 2, bias=bias)
         self.basis = basis
@@ -80,7 +80,24 @@ class RidgeRegression(torch.nn.Module):
         mse_loss = torch.mean((self.forward(X) - y) ** 2)
         l2_reg = self.lambda_ * torch.sum(self.w ** 2)  
         return mse_loss + l2_reg
-    
+
+class RidgeRegressionErrorDetector(torch.nn.Module):
+    def __init__(self, input_dim, lambda_):
+        super(RidgeRegressionErrorDetector, self).__init__()
+        self.w1 = torch.nn.Parameter(torch.randn(input_dim, requires_grad=True))
+        self.b1 = torch.nn.Parameter(torch.randn(1, requires_grad=True))
+        self.w2 = torch.nn.Parameter(torch.randn(input_dim, requires_grad=True))
+        self.b2 = torch.nn.Parameter(torch.randn(1, requires_grad=True))
+        self.lambda_ = lambda_   
+
+    def forward(self, X):
+        return (X @ self.w1 + self.b1) - (X @ self.w2 + self.b2 )
+
+    def loss(self, X, y):
+        mse_loss = torch.mean((self.forward(X) - y) ** 2)
+        l2_reg = self.lambda_ * (torch.sum(self.w1 ** 2) + torch.sum(self.w2 ** 2))  
+        return mse_loss + l2_reg
+
 class MultiClassLogisticRegression(torch.nn.Module):
     def __init__(self, input_size, num_classes):
         super(MultiClassLogisticRegression, self).__init__()
@@ -88,3 +105,17 @@ class MultiClassLogisticRegression(torch.nn.Module):
     
     def forward(self, x):
         return self.linear(x)
+
+
+class MLP(torch.nn.Module):
+    def __init__(self, input_dim=4096, hidden_dim=512, output_dim=8):
+        super(MLP, self).__init__()
+        self.fc1 = torch.nn.Linear(input_dim, hidden_dim)
+        self.relu = torch.nn.ReLU()
+        self.fc2 = torch.nn.Linear(hidden_dim, output_dim)
+    
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
