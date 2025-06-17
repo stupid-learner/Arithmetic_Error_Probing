@@ -40,7 +40,7 @@ model_name = ""
 data_folder = ""
 hidden_states_path = ""
 base_folder = "probing_results"
-target_digit_index = 3  # Fixed target digit
+target_digit_index = "start"  # Fixed target digit
 train_ratio = 0.7
 seed = 42
 
@@ -68,7 +68,7 @@ def load_hidden_states():
     # Update samples to match loaded hidden states
     all_samples = list(num_to_hidden.keys())
     print(len(all_samples))
-    all_samples = [pair for pair in all_samples if int(pair[0]) + int(pair[1]) < 1000]
+    #all_samples = [pair for pair in all_samples if int(pair[0]) + int(pair[1]) < 1000]
 
     if len(all_samples) > 0:
         sample = all_samples[0]

@@ -40,7 +40,7 @@ model_name = ""
 data_folder = ""
 hidden_states_path = ""
 base_folder = "probing_results"
-target_digit_index = 3  # Fixed target digit
+target_digit_index = "start"  # Fixed target digit
 train_ratio = 0.7
 seed = 42
 
@@ -68,7 +68,7 @@ def load_hidden_states():
     # Update samples to match loaded hidden states
     all_samples = list(num_to_hidden.keys())
     print(len(all_samples))
-    all_samples = [pair for pair in all_samples if int(pair[0]) + int(pair[1]) < 1000]
+    all_samples = [pair for pair in all_samples if int(pair[0]) + int(pair[1]) < 10**7]
 
     if len(all_samples) > 0:
         sample = all_samples[0]
@@ -95,6 +95,20 @@ def load_hidden_states():
     samples_train = random_select_tuples(samples, int(train_ratio * len(samples)))
     samples_test = list(set(samples) - set(samples_train))
     print(f"Loaded hidden states for {len(samples)} samples")
+
+    digit_length_counts = {}
+    
+    for sample in samples:
+        model_output = get_model_output(sample[0], sample[1])
+        digit_length = len(str(abs(int(model_output))))
+        
+        if digit_length not in digit_length_counts:
+            digit_length_counts[digit_length] = 0
+        digit_length_counts[digit_length] += 1
+    
+    print("Sample distribution by model output digit length:")
+    for length in sorted(digit_length_counts.keys()):
+        print(f"  {length} digits: {digit_length_counts[length]} samples")
 
 # Prepare data for training and testing
 def prepare_data_for_layer(layer_index, value_func, samples_list):
@@ -428,7 +442,7 @@ def main():
     random.seed(42)
 
     # Load result dictionary
-    result_dic = load_model_result_dic(data_folder)
+    result_dic = load_model_result_dic(data_folder, sum_upper_bound = int(10**7))
     
     # Load hidden states
     load_hidden_states()

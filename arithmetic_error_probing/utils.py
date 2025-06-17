@@ -35,10 +35,13 @@ def get_digit(num: int, index: Union[int, str], basis: int = 10) -> int:
     Returns:
         The specified digit or the entire number
     """
-    if index != "all":
-        return (num // basis**(index-1)) % basis
-    else:
+    if index == "all":
         return num
+    elif index == "start":
+        return int(str(abs(num))[0])
+    index = int(index)
+    return (abs(num) // basis**(index-1)) % basis
+
 
 
 def random_select_tuples(tuple_list: List[Tuple], n: int, seed: Optional[int] = 42) -> List[Tuple]:
@@ -178,7 +181,9 @@ def load_model_result_dic(folder: str, lower_bound: int = 0, sum_upper_bound: in
         Dictionary in the format {(operand1, operand2): sum}
     """
     # Choose loading function based on folder name
-    if folder.startswith("gemma-2-2b-it"):
+    if "wo_equation" in folder:
+        return load_wo_equation_results(folder, lower_bound, sum_upper_bound)
+    elif folder.startswith("gemma-2-2b-it"):
         return _load_gemma_it_results(folder, lower_bound, sum_upper_bound)
     elif folder == "Meta-Llama-3-8B_sum_data":
         return _load_llama_results(folder, lower_bound, sum_upper_bound)
@@ -353,21 +358,81 @@ def _load_gemma_it_results(folder: str, lower_bound: int = 0, sum_upper_bound: i
                                 result_str = response[start_idx+1:end_idx].strip()
                                 
                                 # Ensure the result is a valid integer
-                                if result_str.isdigit():
+                                if result_str.isdigit() or (len(result_str) > 1 and result_str[0] == "-" and result_str[1:].isdigit()):
                                     answer = int(result_str)
                                     
                                     # Filter by the bounds
-                                    if (operand1 + operand2 < sum_upper_bound and 
-                                        answer < sum_upper_bound and 
-                                        operand1 + operand2 >= lower_bound and
-                                        3 <= len(str(answer)) <= 4):  # Apply the same filter as in other functions
-                                        result_dic[(operand1, operand2)] = answer
+                                    if "sum" in folder and "3to5" in folder:
+                                        if (operand1 + operand2 < sum_upper_bound and 
+                                            answer < sum_upper_bound and 
+                                            operand1 + operand2 >= lower_bound):
+                                            result_dic[(operand1, operand2)] = answer
+
+                                    elif "sum" in folder:
+                                        if (operand1 + operand2 < sum_upper_bound and 
+                                            answer < sum_upper_bound and 
+                                            operand1 + operand2 >= lower_bound and
+                                            3 <= len(str(answer)) <= 4):
+                                            result_dic[(operand1, operand2)] = answer
+                                    
+                                    elif "difference" in folder:
+                                        if (operand1 - operand2 >= lower_bound and
+                                            answer < sum_upper_bound
+                                            and answer >= lower_bound):
+                                            result_dic[(operand1, operand2)] = answer
                         except (ValueError, IndexError):
                             continue
+        
         except FileNotFoundError:
             print(f"Warning: File {folder}/{csv_file} not found, skipped")
     
     return result_dic
+
+def load_wo_equation_results(folder: str, lower_bound: int = 0, sum_upper_bound: int = 1000) -> Dict[Tuple[int, int], int]:
+    result_dic = {}
+    csv_files = [f"data_{i}00_to_{i+1}00" for i in range(1, 10)]
+    
+    # Read all CSV files
+    for csv_file in csv_files:
+        try:
+            with open(f"{folder}/{csv_file}", 'r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                for row in reader:
+                    # CSV format: operand1, operand2, response_string
+                    if len(row) >= 3:
+                        try:
+                            operand1 = int(row[0])
+                            operand2 = int(row[1])
+                            answer = int(row[2].split("\n")[0])
+
+                                    
+                            # Filter by the bounds
+                            if "sum" in folder and "3to5" in folder:
+                                if (operand1 + operand2 < sum_upper_bound and 
+                                    answer < sum_upper_bound and 
+                                    operand1 + operand2 >= lower_bound):
+                                    result_dic[(operand1, operand2)] = answer
+
+                            elif "sum" in folder:
+                                if (operand1 + operand2 < sum_upper_bound and 
+                                    answer < sum_upper_bound and 
+                                    operand1 + operand2 >= lower_bound and
+                                    3 <= len(str(answer)) <= 4):
+                                    result_dic[(operand1, operand2)] = answer
+                                    
+                            elif "difference" in folder:
+                                if (operand1 - operand2 >= lower_bound and
+                                    answer < sum_upper_bound
+                                    and answer >= lower_bound):
+                                    result_dic[(operand1, operand2)] = answer
+                        except (ValueError, IndexError):
+                            continue
+        
+        except FileNotFoundError:
+            print(f"Warning: File {folder}/{csv_file} not found, skipped")
+    
+    return result_dic
+
 
 
 def _load_llama_instruct_results(folder: str, lower_bound: int = 0, sum_upper_bound: int = 1000) -> Dict[Tuple[int, int], int]:

@@ -1,11 +1,3 @@
-'''
-python -m arithmetic_error_probing.generate_response_and_activation.get_activation_pure \
-2 \
-google/gemma-2-2b-it \
-sum \
-3
-'''
-
 import torch
 import os
 from arithmetic_error_probing.generate_response_and_activation.general_ps_utils import ModelAndTokenizer
@@ -15,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from huggingface_hub import login
 import gc
 import sys
+import random
 login(token=os.environ.get('HUGGINGFACE_HUB_TOKEN'))
 
 n_shots = int(sys.argv[1])
@@ -36,7 +29,20 @@ elif arithmetic_mode == "product":
     arithmetic_operator = "*"
     arithmetic_function = lambda a,b: a*b
 
-result_dic = load_model_result_dic(f"{model_name.split('/')[-1]}_{n_shots}_shots_3_digit_{arithmetic_mode}_output")
+def generate_number(digits, seed):
+    local_random = random.Random(seed)
+    min_val = 10**(digits-1)
+    max_val = 10**digits - 1
+    return local_random.randint(min_val, max_val)
+
+def test_case_to_operands(test_id):
+    categories = [(3,3), (3,4), (3,5), (4,3), (4,4), (4,5), (5,3), (5,4), (5,5)]
+    category = categories[test_id % 9]
+    i = generate_number(category[0], test_id * 2)
+    j = generate_number(category[1], test_id * 2 + 1)
+    return i, j
+
+result_dic = load_model_result_dic(f"{model_name.split('/')[-1]}_{n_shots}_shots_3to5_digit_{arithmetic_mode}_output", sum_upper_bound = int(10**7))
 prompt_with_correct_answer = []
 prompt_with_wrong_answer = [] 
 
@@ -53,6 +59,9 @@ for i in prompt_with_correct_answer:
 for i in prompt_with_wrong_answer:
   prompt_by_third_digit_2[get_digit(arithmetic_function(i[0],i[1]),digit_index)].append(i)
 
+for digit, (correct, wrong) in enumerate(zip(prompt_by_third_digit_1, prompt_by_third_digit_2)):
+    print(f"Digit {digit}: Correct={len(correct)}, Wrong={len(wrong)}")
+
 
 samples = []
 for i in range(10):
@@ -60,10 +69,11 @@ for i in range(10):
   samples += random_select_tuples(prompt_by_third_digit_2[i], min(len(prompt_by_third_digit_2[i]), 150))
 
 print(f"Using {len(samples)} samples")
+
 operands_list = []
-for i in range(100, 1000):
-   for j in range(100, 1000):
-      operands_list.append((i,j))
+for k in range(10000):
+    i, j = test_case_to_operands(k + 100000)
+    operands_list.append((i, j))
 
 random.seed(42)
 random.shuffle(operands_list)
@@ -83,8 +93,6 @@ def create_shot(i, j, index):
         message.append({"role": "user", "content": create_question(i, j)})
     message.append({"role": "assistant", "content": f"<<{i}{arithmetic_operator}{j}={arithmetic_function(i,j)}>>"})
     return message
-
-
 
 mt = ModelAndTokenizer(
     model_name=model_name,
@@ -129,4 +137,4 @@ for i in tqdm(samples, delay=120):
     gc.collect()
     torch.cuda.empty_cache()
 
-torch.save(num_to_hidden, f"arithmetic_error_probing/generate_response_and_activation/{model_name.split('/')[-1]}_{arithmetic_mode}_{digit_index}_num_to_hidden_{n_shots}_shots")
+torch.save(num_to_hidden, f"arithmetic_error_probing/generate_response_and_activation/{model_name.split('/')[-1]}_{arithmetic_mode}_{digit_index}_num_to_hidden_{n_shots}_shots_3to5_digit")

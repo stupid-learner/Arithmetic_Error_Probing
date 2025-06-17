@@ -1,10 +1,11 @@
 '''
-python train_probes_on_pure.py $model_name $data_folder $hidden_states_path $base_folder
+python -m arithmetic_error_probing.train.train_probes_on_pure.py $model_name $data_folder $hidden_states_path $base_folder $arithmetic_mode
 '''
 
 import torch
 import sys
 import os
+import arithmetic_error_probing.model as model
 from arithmetic_error_probing.model import RidgeRegression, MultiClassLogisticRegression, MLP, CircularProbe, CircularErrorDetector, LinearBinaryClassifier, RidgeRegressionErrorDetector
 from tqdm import tqdm
 from transformers import AutoConfig
@@ -34,15 +35,21 @@ from arithmetic_error_probing.model import (
     test_circular_error_detector_jointly
 )
 
+sys.modules['model'] = model
+
 # Global variables and constants
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model_name = ""
 data_folder = ""
 hidden_states_path = ""
 base_folder = "probing_results"
+arithmetic_mode = ""
 target_digit_index = 3  # Fixed target digit
 train_ratio = 0.7
 seed = 42
+
+# Arithmetic function setup
+arithmetic_function = None
 
 # Global data containers
 num_to_hidden = {}
@@ -50,6 +57,19 @@ samples = []
 samples_train = []
 samples_test = []
 result_dic = {}
+
+def setup_arithmetic_mode():
+    """Setup arithmetic function based on mode."""
+    global arithmetic_function
+    
+    if arithmetic_mode == "sum":
+        arithmetic_function = lambda a, b: a + b
+    elif arithmetic_mode == "difference":
+        arithmetic_function = lambda a, b: a - b
+    elif arithmetic_mode == "product":
+        arithmetic_function = lambda a, b: a * b
+    else:
+        raise ValueError(f"Unsupported arithmetic mode: {arithmetic_mode}")
 
 # Load hidden states from file
 def load_hidden_states():
@@ -63,12 +83,12 @@ def load_hidden_states():
         raise FileNotFoundError(f"Hidden states file not found at {hidden_states_path}. Please ensure the file exists.")
     
     print(f"Loading hidden states from {hidden_states_path}")
-    num_to_hidden = torch.load(hidden_states_path, map_location=torch.device(device))
+    num_to_hidden = torch.load(hidden_states_path, map_location=torch.device(device), weights_only=False)
     
     # Update samples to match loaded hidden states
     all_samples = list(num_to_hidden.keys())
     print(len(all_samples))
-    all_samples = [pair for pair in all_samples if int(pair[0]) + int(pair[1]) < 1000]
+    all_samples = [pair for pair in all_samples if arithmetic_function(int(pair[0]), int(pair[1])) < 1000]
 
     if len(all_samples) > 0:
         sample = all_samples[0]
@@ -169,40 +189,28 @@ def prepare_error_data_for_layer(layer_index, model_func, gt_func, samples_list)
     
     return X, Y_model, Y_true, Y_binary
 
-#-----------------------------------------------------------------------------
-# New digit extraction functions for tens and ones digits
-#-----------------------------------------------------------------------------
-
 # Function to get tens digit of first number
 def get_first_number_tens_digit(i, j):
-    # Extract tens digit (i // 10) % 10
     return (i // 10) % 10
 
 # Function to get ones digit of first number
 def get_first_number_ones_digit(i, j):
-    # Extract ones digit i % 10
     return i % 10
 
 # Function to get tens digit of second number
 def get_second_number_tens_digit(i, j):
-    # Extract tens digit (j // 10) % 10
     return (j // 10) % 10
 
 # Function to get ones digit of second number
 def get_second_number_ones_digit(i, j):
-    # Extract ones digit j % 10
     return j % 10
-
-#-----------------------------------------------------------------------------
-# Main training and evaluation functions
-#-----------------------------------------------------------------------------
 
 # Train all probes and error detectors
 def train_all_probes_and_error_detectors():
     """Train probes and error detectors for each layer."""
     # Value functions
-    def get_sum(i, j):
-        return i + j
+    def get_arithmetic_result(i, j):
+        return arithmetic_function(i, j)
     
     def get_model_output(i, j):
         return result_dic[(i, j)]
@@ -278,10 +286,10 @@ def train_all_probes_and_error_detectors():
             "output_probe": [],
             "first_num_probe": [],
             "second_num_probe": [],
-            "first_num_tens_digit_probe": [],    # New probe type
-            "first_num_ones_digit_probe": [],    # New probe type
-            "second_num_tens_digit_probe": [],   # New probe type
-            "second_num_ones_digit_probe": []    # New probe type
+            "first_num_tens_digit_probe": [],
+            "first_num_ones_digit_probe": [],
+            "second_num_tens_digit_probe": [],
+            "second_num_ones_digit_probe": []
         }
     
     # Initialize error detector accuracy dictionary
@@ -302,7 +310,7 @@ def train_all_probes_and_error_detectors():
                 
                 # Select the appropriate value function
                 if probe_type == "gt_probe":
-                    value_func = lambda x,y: get_digit(get_sum(x,y),target_digit_index)
+                    value_func = lambda x,y: get_digit(get_arithmetic_result(x,y),target_digit_index)
                 elif probe_type == "output_probe":
                     value_func = lambda x,y: get_digit(get_model_output(x,y),target_digit_index)
                 elif probe_type == "first_num_probe":
@@ -343,10 +351,10 @@ def train_all_probes_and_error_detectors():
             
             # Prepare data for error detection
             X_train, Y_model_train, Y_true_train, Y_binary_train = prepare_error_data_for_layer(
-                layer_index, get_model_output, get_sum, samples_train
+                layer_index, get_model_output, get_arithmetic_result, samples_train
             )
             X_test, Y_model_test, Y_true_test, Y_binary_test = prepare_error_data_for_layer(
-                layer_index, get_model_output, get_sum, samples_test
+                layer_index, get_model_output, get_arithmetic_result, samples_test
             )
             
             # Train the detector based on its type
@@ -414,21 +422,28 @@ def save_results(results, error_results):
 # Main function
 def main():
     """Main function to run the probe training pipeline."""
-    global model_name, data_folder, hidden_states_path, base_folder, result_dic
+    global model_name, data_folder, hidden_states_path, base_folder, arithmetic_mode, result_dic
     
     # Parse command line arguments
-    if len(sys.argv) < 4:
-        print("Usage: python script.py <model_name> <data_folder> <hidden_states_path> <base_folder>")
+    if len(sys.argv) < 6:
+        print("Usage: python script.py <model_name> <data_folder> <hidden_states_path> <base_folder> <arithmetic_mode>")
         sys.exit(1)
         
     model_name = sys.argv[1] 
     data_folder = sys.argv[2]
     hidden_states_path = sys.argv[3]
     base_folder = sys.argv[4]
+    arithmetic_mode = sys.argv[5]
     random.seed(42)
+
+    # Setup arithmetic mode
+    setup_arithmetic_mode()
+    print(f"Using arithmetic mode: {arithmetic_mode}")
 
     # Load result dictionary
     result_dic = load_model_result_dic(data_folder)
+    print(f"{len(result_dic.keys()):}")
+    print(f"{result_dic[(987, 968)]:}")
     
     # Load hidden states
     load_hidden_states()
